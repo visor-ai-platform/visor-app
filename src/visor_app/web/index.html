@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>VISoR</title>
+    <link rel="stylesheet" href="/assets/styles.css?v=44">
+  </head>
+  <body>
+    <button id="language-toggle" class="language-toggle" type="button" aria-label="Switch language">En</button>
+
+    <main class="shell">
+      <section id="landing" class="landing" aria-label="VISoR assistant landing">
+        <div class="logo-lockup">
+          <svg viewBox="0 0 32 20" aria-hidden="true">
+            <path d="M2 10c3.8-5.8 8.4-8.7 14-8.7S26.2 4.2 30 10c-3.8 5.8-8.4 8.7-14 8.7S5.8 15.8 2 10Z" fill="none" stroke="currentColor" stroke-width="2"/>
+            <circle cx="16" cy="10" r="4.2" fill="currentColor"/>
+          </svg>
+          <h1>VISoR</h1>
+        </div>
+      </section>
+
+      <section id="conversation" class="conversation" aria-live="polite" aria-label="Chat messages"></section>
+
+      <div id="scope-notice" class="scope-notice" aria-live="polite"></div>
+
+      <form id="chat-form" class="prompt-box" aria-label="VISoR chat composer">
+        <input id="message-input" name="message" type="text" autocomplete="off" placeholder="Chat with VISoR" required>
+        <span id="runtime-status" class="model-label">Ready</span>
+        <button class="send-button" type="submit" aria-label="Send">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 19V5M6 11l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </form>
+
+      <aside id="guide-box" class="guide-box" aria-label="Current demo scope">
+        <div>
+          <strong id="guide-title">Ask Skills</strong>
+          <span id="guide-description">can only list available skills for now</span>
+        </div>
+        <button id="guide-action" type="button" data-prompt="show me your skills">Ask skills</button>
+      </aside>
+    </main>
+    <script src="/assets/app.js?v=44" type="module"></script>
+  </body>
+</html>
