@@ -22,9 +22,10 @@ _PUBLIC_PATHS = {
     "/redoc",
     "/v1/chat",
     "/v1/chat/stream",
+    "/v1/config",
     "/v1/skills",
 }
-_PUBLIC_PREFIXES = ("/assets/", "/v1/skills/")
+_PUBLIC_PREFIXES = ("/assets/", "/cerevi/", "/v1/skills/")
 
 
 def _is_public_path(path: str) -> bool:

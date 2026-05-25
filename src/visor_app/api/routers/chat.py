@@ -27,6 +27,10 @@ class ChatResponse(BaseModel):
     off_topic_remaining: int | None = None
     off_topic_limit: int | None = None
     scope_notice: str | None = None
+    # Visualize-dataset flow: turn-1 lists candidates, turn-2 carries the spec.
+    candidates: list[dict[str, Any]] | None = None
+    visualization: dict[str, Any] | None = None
+    view_suggestions: list[dict[str, Any]] | None = None
 
 
 def _agent_url() -> str:

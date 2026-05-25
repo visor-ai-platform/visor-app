@@ -13,6 +13,10 @@ const guideAction = document.querySelector("#guide-action");
 const sendButton = document.querySelector(".send-button");
 
 const LANGUAGE_KEY = "visorUiLanguage";
+// Local-lab fallback only. Remote deployments should provide
+// VISOR_CEREVI_EXPLORER_BASE_URL or VISOR_CATALOG_URL through /v1/config.
+const DEFAULT_CEREVI_EXPLORER_BASE_URL = "https://192.168.1.130:8080";
+let cereviExplorerBaseUrl = DEFAULT_CEREVI_EXPLORER_BASE_URL;
 const COPY = {
   en: {
     "document.lang": "en",
@@ -48,6 +52,15 @@ const COPY = {
     "scope.remainingOne": "1 general-question check left",
     "scope.remainingMany": "{remaining} general-question checks left",
     "scope.notice": "Skill mode: {remainingText}. Use generic app (DeepSeek etc.) for broader chat.",
+    "visualize.candidatesIntro": "Select a brain to preview:",
+    "visualize.noCandidates": "No matching brains in the catalog.",
+    "visualize.view": "Preview",
+    "visualize.loading": "Loading viewer…",
+    "visualize.species": "Species",
+    "visualize.variants": "Variants",
+    "visualize.suggestionsIntro": "Try another preview:",
+    "visualize.cereviPrefix": "For advanced inspection, use",
+    "visualize.cereviLabel": "Cerevi ->",
   },
   zh: {
     "document.lang": "zh-CN",
@@ -83,6 +96,15 @@ const COPY = {
     "scope.remainingOne": "还剩 1 次通用问题检查",
     "scope.remainingMany": "还剩 {remaining} 次通用问题检查",
     "scope.notice": "技能模式：{remainingText}。更广泛的聊天请使用通用应用（DeepSeek 等）。",
+    "visualize.candidatesIntro": "请选择要预览的脑数据：",
+    "visualize.noCandidates": "数据集目录中没有匹配项。",
+    "visualize.view": "预览",
+    "visualize.loading": "正在加载可视化…",
+    "visualize.species": "物种",
+    "visualize.variants": "变体",
+    "visualize.suggestionsIntro": "尝试另一个预览：",
+    "visualize.cereviPrefix": "高级检查请使用",
+    "visualize.cereviLabel": "Cerevi ->",
   },
 };
 
@@ -213,7 +235,11 @@ function getSessionId() {
 }
 
 function focusComposer() {
-  window.requestAnimationFrame(() => input.focus({ preventScroll: true }));
+  window.requestAnimationFrame(() => {
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) return;
+    input.focus({ preventScroll: true });
+  });
 }
 
 function setStatus(text, state = "ready") {
@@ -234,7 +260,32 @@ function enterChatMode() {
 }
 
 function scrollConversation() {
+  if (document.body.classList.contains("chat-mode")) {
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" });
+    });
+    return;
+  }
   conversation.scrollTop = conversation.scrollHeight;
+}
+
+async function loadBrowserConfig() {
+  try {
+    const response = await fetch("/v1/config", { headers: { Accept: "application/json" } });
+    if (!response.ok) return;
+    const config = await response.json();
+    const explorerUrl = String(config?.cerevi_explorer_base_url || "").trim();
+    if (explorerUrl) cereviExplorerBaseUrl = explorerUrl.replace(/\/+$/, "");
+  } catch {
+    // The static UI remains usable if config fetch fails; only the external
+    // Cerevi inspection link falls back to the local-lab default above.
+  }
+}
+
+function cereviViewerUrl(specimenId) {
+  const id = String(specimenId || "").trim();
+  if (!id) return cereviExplorerBaseUrl;
+  return `${cereviExplorerBaseUrl}/viewer/${encodeURIComponent(id)}`;
 }
 
 function createMessage(role, text) {
@@ -534,6 +585,178 @@ function renderSkills(container, skills) {
   focusComposer();
 }
 
+function renderCandidates(container, candidates) {
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "candidate-empty";
+    empty.textContent = t("visualize.noCandidates");
+    container.append(empty);
+    return;
+  }
+  const wrap = document.createElement("div");
+  wrap.className = "candidate-list";
+  for (const cand of candidates) {
+    const card = document.createElement("section");
+    card.className = "candidate-card";
+
+    const title = document.createElement("strong");
+    title.className = "candidate-name";
+    title.textContent = cand.name || cand.id;
+    card.append(title);
+
+    if (cand.species) {
+      const species = document.createElement("span");
+      species.className = "candidate-meta";
+      species.textContent = `${t("visualize.species")}: ${cand.species}`;
+      card.append(species);
+    }
+
+    if (cand.description) {
+      const desc = document.createElement("p");
+      desc.className = "candidate-desc";
+      desc.textContent = cand.description;
+      card.append(desc);
+    }
+
+    if (Array.isArray(cand.image_variants) && cand.image_variants.length) {
+      const variants = document.createElement("span");
+      variants.className = "candidate-meta";
+      variants.textContent = `${t("visualize.variants")}: ${cand.image_variants.join(", ")}`;
+      card.append(variants);
+    }
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "candidate-view";
+    button.textContent = t("visualize.view");
+    button.addEventListener("click", () => {
+      const variant = Array.isArray(cand.image_variants) && cand.image_variants[0]
+        ? cand.image_variants[0]
+        : undefined;
+      sendMessage(`Preview ${cand.name || cand.id}`, {
+        selected_specimen_id: cand.id,
+        ...(variant ? { variant } : {}),
+      });
+    });
+    card.append(button);
+
+    wrap.append(card);
+  }
+  container.append(wrap);
+  scrollConversation();
+}
+
+function renderVisualization(container, viz) {
+  if (!viz || typeof viz !== "object") return;
+  const host = document.createElement("div");
+  host.className = "visualization-host";
+  const loading = document.createElement("div");
+  loading.className = "galavi-fallback";
+  loading.textContent = t("visualize.loading");
+  host.append(loading);
+  container.append(host);
+  scrollConversation();
+
+  // Manual cache-bust until the static UI grows a build step with hashed assets.
+  import("/assets/galavi-embed.js?v=56")
+    .then((mod) => mod.mountGalaviEmbed(host, viz))
+    .catch((err) => {
+      host.innerHTML = "";
+      const note = document.createElement("div");
+      note.className = "galavi-fallback";
+      note.textContent = `Failed to load viewer: ${err?.message || err}`;
+      host.append(note);
+    });
+}
+
+function renderViewSuggestions(container, suggestions, viz) {
+  if (!Array.isArray(suggestions) || !suggestions.length || !viz?.specimen_id) return;
+
+  const wrap = document.createElement("div");
+  wrap.className = "view-suggestions";
+
+  const intro = document.createElement("p");
+  intro.className = "view-suggestions-intro";
+  intro.textContent = t("visualize.suggestionsIntro");
+  wrap.append(intro);
+
+  const list = document.createElement("div");
+  list.className = "view-suggestion-list";
+
+  for (const suggestion of suggestions) {
+    if (!suggestion || typeof suggestion !== "object" || !suggestion.view_type) continue;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "view-suggestion";
+
+    const label = document.createElement("strong");
+    label.textContent = suggestion.label || suggestion.view_type;
+    button.append(label);
+
+    if (suggestion.description) {
+      const desc = document.createElement("span");
+      desc.textContent = suggestion.description;
+      button.append(desc);
+    }
+
+    button.addEventListener("click", () => {
+      sendMessage(suggestion.prompt || `Preview ${suggestion.label || suggestion.view_type}`, {
+        selected_specimen_id: viz.specimen_id,
+        ...(viz.variant ? { variant: viz.variant } : {}),
+        view_type: suggestion.view_type,
+      });
+    });
+    list.append(button);
+  }
+
+  if (!list.childElementCount) return;
+  wrap.append(list);
+  container.append(wrap);
+  scrollConversation();
+}
+
+function renderCereviLink(container, viz) {
+  if (!viz?.specimen_id) return;
+  const row = document.createElement("p");
+  row.className = "cerevi-link-row";
+  row.append(document.createTextNode(`${t("visualize.cereviPrefix")} `));
+  const link = document.createElement("a");
+  link.href = cereviViewerUrl(viz.specimen_id);
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.textContent = t("visualize.cereviLabel");
+  row.append(link);
+  container.append(row);
+}
+
+function renderFinalExtras(message, payload) {
+  if (!payload) return;
+  if (Array.isArray(payload.skills) && payload.skills.length) {
+    renderSkills(message.bubble, payload.skills);
+  }
+  if (Array.isArray(payload.candidates)) {
+    const wrap = document.createElement("div");
+    wrap.className = "candidates-wrap";
+    if (payload.candidates.length) {
+      const intro = document.createElement("p");
+      intro.className = "candidate-intro";
+      intro.textContent = t("visualize.candidatesIntro");
+      wrap.append(intro);
+    }
+    renderCandidates(wrap, payload.candidates);
+    message.bubble.append(wrap);
+  }
+  if (payload.visualization) {
+    renderCereviLink(message.bubble, payload.visualization);
+  }
+  if (Array.isArray(payload.view_suggestions)) {
+    renderViewSuggestions(message.bubble, payload.view_suggestions, payload.visualization);
+  }
+  if (payload.visualization) {
+    renderVisualization(message.bubble, payload.visualization);
+  }
+}
+
 function parseSseBlock(block) {
   let event = "message";
   const data = [];
@@ -582,7 +805,7 @@ async function readAgentStream(response, onEvent) {
   }
 }
 
-async function sendMessage(text) {
+async function sendMessage(text, extraContext) {
   const prompt = text.trim();
   if (!prompt) return;
 
@@ -598,11 +821,17 @@ async function sendMessage(text) {
   const streamMessage = createStreamingMessage();
   let completed = false;
 
+  const context = {
+    session_id: getSessionId(),
+    ui_language: uiLanguage,
+    ...(extraContext && typeof extraContext === "object" ? extraContext : {}),
+  };
+
   try {
     const response = await fetch("/v1/chat/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: prompt, context: { session_id: getSessionId(), ui_language: uiLanguage } }),
+      body: JSON.stringify({ message: prompt, context }),
     });
     if (!response.ok) throw new Error(await response.text());
 
@@ -615,6 +844,7 @@ async function sendMessage(text) {
       if (event === "final") {
         completed = true;
         if (String(payload.reply || "").trim()) appendFinalText(streamMessage, payload.reply);
+        renderFinalExtras(streamMessage, payload);
         setScopeNotice(payload);
         setStatus(String(payload.source || "").includes("deepseek") ? "deepseek" : "ready");
         return;
@@ -657,10 +887,17 @@ for (const button of promptButtons) {
 languageToggle?.addEventListener("click", () => setUiLanguage(uiLanguage === "en" ? "zh" : "en"));
 
 input.addEventListener("blur", () => {
-  if (document.body.classList.contains("chat-mode")) {
-    window.setTimeout(focusComposer, 0);
-  }
+  if (!document.body.classList.contains("chat-mode")) return;
+  // Don't steal focus while the user is selecting text in the conversation.
+  const selection = window.getSelection();
+  if (selection && !selection.isCollapsed) return;
+  window.setTimeout(() => {
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) return;
+    focusComposer();
+  }, 0);
 });
 
 applyLanguage();
+loadBrowserConfig();
 focusComposer();
